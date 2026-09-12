@@ -16,7 +16,7 @@ def start():
     c=db()
     c.execute("""CREATE TABLE IF NOT EXISTS a (
         id INTEGER PRIMARY KEY, name TEXT, watt INTEGER,
-        priority INTEGER, status TEXT)""")
+        priority INTEGER, state TEXT)""")
     c.commit()
     c.close()
 
@@ -26,10 +26,10 @@ def all():
     c.close()
     return [dict(i) for i in x]
 
-def load():
+def current_load():
     c=db()
     x= c.execute(
-        "SELECT COALESCE(SUM(watt), 0) FROM a WHERE status='on'").fetchone()[0]
+        "SELECT COALESCE(SUM(watt), 0) FROM a WHERE state='on'").fetchone()[0]
     c.close()
     return x
 
@@ -39,15 +39,21 @@ def home():
 
 @app.get("/api")
 def get():
-    return {"capacity": CAP(), "load": load(), "appliances": all()}
+    return {"capacity": CAP, "load": current_load(), "appliances": all()}
 
 @app.post("/api")
 def add(x:dict):
-    if not x.get("name") or not x.get("watt",0) <= 0 or x.get("priority",0)<=0:
+    if not x.get("name") or  x.get("watt",0) <= 0 or x.get("priority",0)<=0:
         raise HTTPException(400, "Invalid appliance")
     c=db()
-    c.execute("INSERT INTO a (name, watt, priority, status) VALUES (?, ?, ?, 'off')",
-              (x["name"], x["watt"], x["priority"]))
+    try :
+        c.execute("ALTER TABLE a ADD COLUMN state TEXT DEFAULT 'off'")
+    except sqlite3.OperationalError:
+        pass
+    c.execute(
+        "INSERT INTO a (name, watt, priority, state) VALUES (?, ?, ?, 'off')",
+            (x["name"], x["watt"], x["priority"])
+        )
     c.commit()
     c.close()
     return {"message": "Added"}
