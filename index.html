@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>InverterLoad Balancer</title>
+        <style>
+            body {
+                font-family: Arial; max-width: 800px; margin: 30px auto; padding: 10px;
+            }
+            .card{padding:20px;background:#eee;margin:15px 0}
+            input,button{padding:8px;margin:3px}
+            button{cursor:pointer}
+            table{width:100%;border-collapse:collapse}
+            td,th{padding:10px;border-bottom:1px solid #ccc;text-align:center}
+            .on{color:green;font-weight:bold}
+            .off{color:gray;font-weight:bold}
+            .shed{color:orange;font-weight:bold}
+
+        </style>
+    </head>
+    <body>
+        <h1>Inverter Load Balancer</h1>
+        <div class="card">
+            <h2>Load: <span id="load">0</span> /800 W</h2>
+        </div
+        <form onsubmit="add(event)">
+            <input id="name" placeholder="Name" required>
+            <input id="watt" type="number" placeholder="Watt" required>
+            <input id="priority" type="number" placeholder="Priority" required>
+            <button type="submit">Add</button>
+        </form>
+        <h2>Appliances</h2>
+        <table>
+            <thead><tr><th>Name</th><th>Watt</th><th>Priority</th><th>State</th><th>Action</th></tr></thead>
+            <tbody id="list"></tbody>
+        </table>
+        <p id="msg"></p>
+
+        <script>
+            async function refresh(){
+                let r = await fetch("/api"),d=await r.json();
+                load.innerText = d.load;
+                list.innerHTML = "";
+
+                d.appliances.forEach(a=>{
+                    list.innerHTML += `
+                    <tr>
+                        <td>${a.name}</td>
+                        <td>${a.watt}</td>
+                        <td>${a.priority}</td>
+                        <td class="${a.state}">${a.state.toUpperCase()}</td>
+                        <td>
+                            <button onclick="toggle('${a.id}', '${a.state}')">
+                                ${a.state=="on"?"OFF":"ON"}</button>
+                            <button onclick="del(${a.id})">Delete</button>
+                        </td>
+                    </tr>`;
+                });
+            }
+            
+            async function add(e){
+                    e.preventDefault();
+                    let x={
+                        name:name.value,
+                        watt:+watt.value,
+                        priority:+priority.value
+                    };
+                    let r=await fetch("/api",{
+                        method:"POST",
+                        headers:{"Content-Type":"application/json"},
+                        body:JSON.stringify(x)
+                    });
+                    msg.innerText = (await r.json()).message;
+                    e.target.reset();
+                    refresh();
+            }
+                    async function toggle(id,state){
+                        let r=await fetch('/api/${id}/${state=="on"?"off":"on"}', {
+                        method:"POST"
+                        });
+                        let d=await r.json();
+                        msg.innerText = d.message||d.detail;
+                        refresh();
+                }
+            async function del(id){
+                await fetch('/api/${id}', {method:"DELETE"});
+                refresh();
+            }
+            refresh();
+
+
+
+        </script>
+
+    </body>
+</html>
