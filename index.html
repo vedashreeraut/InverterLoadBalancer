@@ -1,50 +1,98 @@
 <!DOCTYPE html>
 <html>
-    <head>
-        <title>InverterLoad Balancer</title>
-        <style>
-            body {
-                font-family: Arial; max-width: 800px; margin: 30px auto; padding: 10px;
-            }
-            .card{padding:20px;background:#eee;margin:15px 0}
-            input,button{padding:8px;margin:3px}
-            button{cursor:pointer}
-            table{width:100%;border-collapse:collapse}
-            td,th{padding:10px;border-bottom:1px solid #ccc;text-align:center}
-            .on{color:green;font-weight:bold}
-            .off{color:gray;font-weight:bold}
-            .shed{color:orange;font-weight:bold}
 
-        </style>
-    </head>
-    <body>
-        <h1>Inverter Load Balancer</h1>
-        <div class="card">
-            <h2>Load: <span id="load">0</span> /800 W</h2>
-        </div
-        <form>
-            <input id="name" placeholder="Name" required>
-            <input id="watt" type="number" placeholder="Watt" required>
-            <input id="priority" type="number" placeholder="Priority" required>
-            <button type="button" onclick="add(event)">Add</button>
-        </form>
-        <h2>Appliances</h2>
-        <table>
-            <thead><tr><th>Name</th><th>Watt</th><th>Priority</th><th>State</th><th>Action</th></tr></thead>
-            <tbody id="list"></tbody>
-        </table>
-        <p id="msg"></p>
+<head>
+    <title>InverterLoad Balancer</title>
+    <style>
+        body {
+            font-family: Arial;
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 10px;
+        }
 
-        <script>
-            async function refresh(){
-                const response = await fetch("/api");
-                const data = await response.json();
-                document.getElementById("load").innerText = data.load;
-                const list = document.getElementById("list");
-                list.innerHTML = "";
+        .card {
+            padding: 20px;
+            background: #eee;
+            margin: 15px 0
+        }
 
-                data.appliances.forEach(a=>{
-                    list.innerHTML += `
+        input,
+        button {
+            padding: 8px;
+            margin: 3px
+        }
+
+        button {
+            cursor: pointer
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        td,
+        th {
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            text-align: center
+        }
+
+        .on {
+            color: green;
+            font-weight: bold
+        }
+
+        .off {
+            color: gray;
+            font-weight: bold
+        }
+
+        .shed {
+            color: orange;
+            font-weight: bold
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Inverter Load Balancer</h1>
+    <button onclick="allOff()">Turn Everything OFF</button>
+    <div class="card">
+        <h2>Load: <span id="load">0</span> /800 W</h2>
+    </div>
+    <form>
+        <input id="name" placeholder="Name" required>
+        <input id="watt" type="number" placeholder="Watt" required>
+        <input id="priority" type="number" placeholder="Priority" required>
+        <button type="button" onclick="add(event)">Add</button>
+    </form>
+    <h2>Appliances</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Watt</th>
+                <th>Priority</th>
+                <th>State</th>
+                <th>Control</th>
+            </tr>
+        </thead>
+        <tbody id="list"></tbody>
+    </table>
+    <p id="msg"></p>
+
+    <script>
+        async function refresh() {
+            const response = await fetch("/api");
+            const data = await response.json();
+            document.getElementById("load").innerText = data.load;
+            const list = document.getElementById("list");
+            list.innerHTML = "";
+
+            data.appliances.forEach(a => {
+                list.innerHTML += `
                     <tr>
                         <td>${a.name}</td>
                         <td>${a.watt}</td>
@@ -54,46 +102,76 @@
                             <button onclick="toggle('${a.id}', '${a.state}')">
                         </td>
                     </tr>`;
-                });
-            }
-            
-            async function add(e){
-                    e.preventDefault();
+            });
+        }
 
-                    const name = document.getElementById("name").value;
-                    const watt = Number(document.getElementById("watt").value);
-                    const priority = Number(document.getElementById("priority").value);
-                    console.log("SENDING:", { name, watt, priority });
-                    const response= await fetch("/api", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name, watt, priority })
-                    });
-                    if (!response.ok){
-                        const text = await response.text();
-                        console.error(text);
-                        alert(text);
-                        return;
-                    }
-                    await refresh();
+        async function add(e) {
+            e.preventDefault();
+
+            const name = document.getElementById("name").value;
+            const watt = Number(document.getElementById("watt").value);
+            const priority = Number(document.getElementById("priority").value);
+            console.log("SENDING:", { name, watt, priority });
+            const response = await fetch("/api", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, watt, priority })
+            });
+            if (!response.ok) {
+                const text = await response.text();
+                console.error(text);
+                alert(text);
+                return;
             }
-                    async function toggle(id,state){
-                        let r=await fetch('/api/${id}/${state=="on"?"off":"on"}', {
-                        method:"POST"
-                        });
-                        let d=await r.json();
-                        msg.innerText = d.message||d.detail;
-                        refresh();
-                }
-            async function del(id){
-                await fetch('/api/${id}', {method:"DELETE"});
-                refresh();
+            await refresh();
+        }
+        async function toggle(id, state) {
+            let action;
+            if(state=="on"){
+                action = "off";
+            } else if(state=="shed"){
+                action = "restore";
+            }else{
+                action = "on";
             }
+            const response = await fetch(`/api/${id}/${action}`, { method: "POST" });
+            if(!response.ok) {
+                alert(await response.text());
+                return;
+            }
+            await refresh();
+        }
+        async function del(id) {
+            await fetch('/api/${id}', { method: "DELETE" });
             refresh();
+        }
+        refresh();
+
+        async function allOff(){
+            const response = await fetch("/api/all/off", {
+                method: "POST"
+            });
+            if(!response.ok) {
+                alert(await response.text());
+                return;
+            }
+            await refresh();
+        }
+        async function allOn(){
+            const response = await fetch("/api/all/on", {
+                method: "POST"
+            });
+            if(!response.ok) {
+                alert(await response.text());
+                return;
+            }
+            await refresh();
+        }
 
 
 
-        </script>
+    </script>
 
-    </body>
+</body>
+
 </html>

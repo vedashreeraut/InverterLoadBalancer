@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 app = FastAPI()
-DB="data.db"
+DB="load_balancer.db"
 CAP=800
 
 def db():
@@ -67,58 +67,86 @@ def delete(id:int):
     restore()
     return {"message": "Deleted"}
 
-def restore():
-    c=db()
-    used=c.execute(
-        "SELECT COALESCE(SUM(watt), 0) FROM a WHERE state='on'").fetchone()[0]
-    rows = c.execute(
-        "SELECT * FROM a WHERE state='shed' ORDER BY priority.id").fetchall()
-    for r in rows:
-        if used + r["watt"] <= CAP:
-            c.execute("UPDATE a SET state='on' WHERE id=?", (r["id"],))
-            used += r["watt"]
+@app.post("/api/{id}/restore")
+def restore(id:int):
+    c=db.cursor()
+    #used=c.execute(
+        #"SELECT COALESCE(SUM(watt), 0) FROM a WHERE state='on'").fetchone()[0]
+    rows = c.execute("SELECT * FROM a WHERE id=?",(id,)).fetchone()
+    if not r:
+        c.close()
+        raise HTTPException(404, "Not found")
+    if r["state"]!="shed":
+        c.close()
+        raise HTTPException(400, "Appliance is not shed")
+    used=c.execute("SELECT COALESCE(SUM(watt), 0) FROM a WHERE state='on'").fetchone()[0]
+    
+    if used + r["watt"] > CAP:
+        c.close()
+        raise HTTPException(400, "Cannot restore : insufficient capacity")
+    
+    c.execute("UPDATE a SET state='on' WHERE id=?", (id,))
     c.commit()
     c.close()
+    return {"message": "Restored"}
     
+@app.post("/api/all/off")
+def all_off():
+    c=sqlite3.connect(DB)
+    c.execute("UPDATE a SET state='off'")
+    c.commit()
+    c.close()
+    return {"message": "Everything OFF"}
+
+@app.post("/api/all/on")
+def all_on():
+    c=sqlite3.connect(DB)
+    c.execute("UPDATE a SET state='on'")
+    c.commit()
+    c.close()
+    return {"message": "Everything ON"}
+
 @app.post("/api/{id}/on")
 def on(id:int):
-    c=db()
+    c=sqlite3.connect(DB)
+    c.row_factory=sqlite3.Row
     r=c.execute("SELECT * FROM a WHERE id=?", (id,)).fetchone()
     if not r:
         c.close()
         raise HTTPException(404, "Not found")
     if r["state"]=="on":
         c.close()
-        raise HTTPException(400, "Already on")
-    used=c.execute(
-        "SELECT COALESCE(SUM(watt), 0) FROM a WHERE state='on'").fetchone()[0]
-    need=used + r["watt"]
+        raise HTTPException(400, "Appliance is already ON")
+    used=c.execute("SELECT COALESCE(SUM(watt), 0) FROM a WHERE state='on'").fetchone()[0]
+    need=used+r["watt"]-800
     shed=[]
-    rows=c.execute(
-        """SELECT * FROM a 
-        WHERE state='on' ORDER BY priority>?
-        ORDER BY priority DESC, id DESC
-        """,(r["priority"],)).fetchall()
-    for x in rows:
-        if need <= CAP:
-            break
-        c.execute("UPDATE a SET state='shed' WHERE id=?", (x["id"],))
-        need -= x["watt"]
-        shed.append(x["name"])
-    if need>CAP:
+    if need>0:
+        rows=c.execute(
+            """
+            SELECT * FROM a 
+            WHERE state='on' AND priority>?
+            ORDER BY priority DESC, id DESC
+            """,
+            (r["priority"],)).fetchall()  
+        for x in rows:
+            if need<=0:
+                break
+            c.execute("UPDATE a SET state='shed' WHERE id=?", (x["id"],))
+            need-=x["watt"]
+            shed.append(x["name"])
+    if need>0:
         for x in rows:
             c.execute("UPDATE a SET state='on' WHERE id=?", (x["id"],))
         c.commit()
         c.close()
-        raise HTTPException(409, "Rejected: not enough capacity")
+        raise HTTPException(400, "Cannot turn ON : insufficient capacity")
     c.execute("UPDATE a SET state='on' WHERE id=?", (id,))
     c.commit()
     c.close()
-    return{"message":"ON"+(" | Shed: "+", ".join(shed) if shed else "")}
-
+    return {"message": "ON", "shed": shed}  
 @app.post("/api/{id}/off")
 def off(id:int):
-    c=db()
+    c=sqlite3.connect(DB)
     r=c.execute("SELECT * FROM a WHERE id=?", (id,)).fetchone()
     if not r:
         c.close()
@@ -126,5 +154,4 @@ def off(id:int):
     c.execute("UPDATE a SET state='off' WHERE id=?", (id,))
     c.commit()
     c.close()
-    restore()
     return {"message": "OFF"}
